@@ -1,18 +1,34 @@
 package dev.ujjwal.googlemap
 
-import androidx.appcompat.app.AppCompatActivity
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Bundle
-
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Observer
+import androidx.lifecycle.ViewModelProviders
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 
 class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
-    private lateinit var mMap: GoogleMap
+    private var mMap: GoogleMap? = null
+    private var mMarker: Marker? = null
+    private var mLocationPermissionGranted: Boolean = false
+
+    private lateinit var viewModel: MapsViewModel
+
+    companion object {
+        private val TAG = MapsActivity::class.java.simpleName
+        private const val PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION = 1
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -21,23 +37,71 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         val mapFragment = supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment
         mapFragment.getMapAsync(this)
+
+        getLocationPermission()
+
+        viewModel = ViewModelProviders.of(this).get(MapsViewModel::class.java)
+        viewModel.getLocation()
+        observeViewModel()
     }
 
-    /**
-     * Manipulates the map once available.
-     * This callback is triggered when the map is ready to be used.
-     * This is where we can add markers or lines, add listeners or move the camera. In this case,
-     * we just add a marker near Sydney, Australia.
-     * If Google Play services is not installed on the device, the user will be prompted to install
-     * it inside the SupportMapFragment. This method will only be triggered once the user has
-     * installed Google Play services and returned to the app.
-     */
+    override fun onResume() {
+        super.onResume()
+        if (mLocationPermissionGranted)
+            viewModel.startLocationUpdates()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        viewModel.stopLocationUpdates()
+    }
+
+    private fun getLocationPermission() {
+        if (ContextCompat.checkSelfPermission(this.applicationContext, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            mLocationPermissionGranted = true
+        } else {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String?>, grantResults: IntArray) {
+        mLocationPermissionGranted = false
+        when (requestCode) {
+            PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    mLocationPermissionGranted = true
+                }
+            }
+        }
+    }
+
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
+    }
 
-        // Add a marker in Sydney and move the camera
-        val sydney = LatLng(-34.0, 151.0)
-        mMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
+    private fun observeViewModel() {
+        viewModel.location.observe(this, Observer { location ->
+            location?.let {
+                updateLocationUI(it)
+            }
+        })
+    }
+
+    private fun updateLocationUI(location: Location) {
+        /**Zoom level
+         * 1: World
+         * 5: Landmass/continent
+         * 10: City
+         * 15: Streets
+         * 20: Buildings
+         */
+        mMap?.let { map ->
+            val myLocation = LatLng(location.latitude, location.longitude)
+            //map.clear()
+            mMarker?.remove()
+            mMarker = map.addMarker(MarkerOptions().position(myLocation).title(viewModel.address.value))
+            map.moveCamera(CameraUpdateFactory.newLatLng(myLocation))
+            //map.moveCamera(CameraUpdateFactory.newLatLngZoom(myLocation, 10.0f))
+        }
     }
 }
